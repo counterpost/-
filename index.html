@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0E1114">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="タイマー">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>body{margin:0}:root{padding-top:env(safe-area-inset-top,0px)}</style>
+</head>
+<body>
+<title>繰り返しタイマー</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap">
+<style>
+/* Layout: one-column setup sheet with a sticky start bar; full-screen run view tinted by the current phase. */
+:root {
+  --bg: #0E1114;
+  --surface: #171B20;
+  --surface-2: #1F242B;
+  --line: #2A3139;
+  --fg: #EEF1F3;
+  --muted: #8C96A0;
+  --c0: #FF5A36;   /* 1st interval (work) */
+  --c1: #2BC0A8;   /* 2nd interval (rest) */
+  --c2: #F5B83D;
+  --c3: #8B7CF6;
+  --prep: #5B8DEF;
+  --danger: #FF6B6B;
+  --font-num: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+}
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--prep); outline-offset: 2px; }
+
+/* ---------- Setup ---------- */
+#setup {
+  max-width: 560px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 120px;
+  display: flex; flex-direction: column; gap: 22px;
+}
+.top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .02em; }
+.total { color: var(--muted); font-size: 13px; }
+.total b { font-family: var(--font-num); font-size: 26px; color: var(--fg); font-weight: 800; letter-spacing: .02em; margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+.label { font-size: 12px; color: var(--muted); letter-spacing: .12em; margin: 0 0 8px; }
+
+/* timeline preview */
+.strip { display: flex; height: 10px; border-radius: 5px; overflow: hidden; gap: 2px; background: var(--surface); }
+.strip span { display: block; min-width: 2px; }
+
+.list { display: flex; flex-direction: column; gap: 8px; }
+.row {
+  display: grid; grid-template-columns: 6px minmax(0, 1fr) auto 36px;
+  align-items: center; gap: 10px;
+  background: var(--surface); border-radius: 14px; padding: 10px 8px 10px 12px;
+}
+.bar { width: 6px; align-self: stretch; border-radius: 3px; }
+.row .name {
+  min-width: 0; width: 100%; background: transparent; border: 0; border-bottom: 1px solid transparent;
+  font-size: 17px; font-weight: 700; padding: 4px 0;
+}
+.row .name:focus { outline: none; border-bottom-color: var(--line); }
+.stepper { display: flex; align-items: center; gap: 4px; }
+.stepper button {
+  width: 38px; height: 38px; border-radius: 10px; border: 0;
+  background: var(--surface-2); font-size: 20px; line-height: 1;
+}
+.stepper button:active { transform: scale(.94); }
+.val { display: flex; flex-direction: column; align-items: center; width: 64px; }
+.val input {
+  width: 100%; text-align: center; background: transparent; border: 0;
+  font-family: var(--font-num); font-weight: 800; font-size: 28px; line-height: 1; padding: 0;
+  font-variant-numeric: tabular-nums; -moz-appearance: textfield;
+}
+.val input::-webkit-outer-spin-button, .val input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.val small { font-size: 11px; color: var(--muted); }
+.del {
+  width: 36px; height: 36px; border-radius: 10px; border: 0; background: transparent;
+  color: var(--muted); font-size: 20px;
+}
+.del:disabled { opacity: .25; cursor: default; }
+.add {
+  border: 1px dashed var(--line); background: transparent; border-radius: 14px;
+  padding: 12px; color: var(--muted); font-weight: 700;
+}
+
+.opts { background: var(--surface); border-radius: 14px; display: flex; flex-direction: column; }
+.opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; }
+.opt + .opt { border-top: 1px solid var(--line); }
+.opt .t { font-weight: 700; }
+.opt .t small { display: block; font-weight: 500; color: var(--muted); font-size: 12px; }
+.switch { position: relative; width: 50px; height: 30px; flex: none; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.switch span { position: absolute; inset: 0; border-radius: 15px; background: var(--surface-2); border: 1px solid var(--line); transition: background .15s; pointer-events: none; }
+.switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+.switch input:checked + span { background: color-mix(in srgb, var(--c1) 35%, var(--surface-2)); border-color: var(--c1); }
+.switch input:checked + span::after { transform: translateX(20px); background: var(--fg); }
+.switch input:focus-visible + span { outline: 2px solid var(--prep); outline-offset: 2px; }
+
+.presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  display: inline-flex; align-items: center; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line); overflow: hidden;
+}
+.chip button { border: 0; background: transparent; padding: 8px 12px; font-size: 13px; font-weight: 700; }
+.chip button.x { padding: 8px 10px 8px 2px; color: var(--muted); font-weight: 500; }
+.save { display: flex; gap: 8px; margin-top: 10px; }
+.save input {
+  flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 9px 12px;
+}
+.save button { border: 0; border-radius: 10px; padding: 9px 16px; background: var(--surface-2); font-weight: 700; }
+.note { font-size: 12px; color: var(--muted); min-height: 1em; margin: 6px 0 0; }
+
+.startbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(14px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(to top, var(--bg) 70%, transparent);
+}
+.start {
+  display: block; width: 100%; max-width: 528px; margin: 0 auto;
+  border: 0; border-radius: 16px; padding: 16px; background: var(--c0); color: #1A0A05;
+  font-size: 18px; font-weight: 700; letter-spacing: .1em;
+}
+.start:active { transform: scale(.98); }
+
+/* ---------- Run ---------- */
+#run, #done {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  background: color-mix(in srgb, var(--phase, var(--prep)) 22%, var(--bg));
+  transition: background .35s;
+}
+.runhead { width: 100%; max-width: 560px; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.setcount { font-family: var(--font-num); font-size: 30px; font-weight: 800; letter-spacing: .03em; font-variant-numeric: tabular-nums; }
+.setcount small { font-family: var(--font-body); font-size: 12px; color: var(--muted); letter-spacing: .12em; margin-right: 6px; font-weight: 700; }
+.remain { text-align: right; font-size: 12px; color: var(--muted); letter-spacing: .08em; }
+.remain b { display: block; font-family: var(--font-num); font-size: 24px; color: var(--fg); font-weight: 700; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+
+.dial { position: relative; width: min(84vw, 56vh, 420px); aspect-ratio: 1; max-width: 100%; }
+.dial svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.dial .track { stroke: color-mix(in srgb, var(--fg) 10%, transparent); }
+.dial .prog { stroke: var(--phase, var(--prep)); transition: stroke .35s; }
+.dial .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.phase-name { font-size: clamp(20px, 6vw, 30px); font-weight: 700; color: var(--phase, var(--prep)); letter-spacing: .08em; max-width: 80%; overflow-wrap: anywhere; }
+.clock { font-family: var(--font-num); font-weight: 800; font-size: clamp(84px, 26vw, 170px); line-height: .95; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+.paused-tag { font-size: 13px; letter-spacing: .3em; color: var(--muted); height: 1.4em; }
+
+.next { font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 8px; min-height: 1.5em; }
+.next i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.next b { color: var(--fg); }
+
+.controls { display: flex; align-items: center; justify-content: center; gap: 18px; width: 100%; }
+.ctl {
+  width: 60px; height: 60px; border-radius: 50%; border: 0;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  display: grid; place-items: center;
+}
+.ctl svg { width: 24px; height: 24px; fill: var(--fg); }
+.ctl.main { width: 84px; height: 84px; background: var(--fg); }
+.ctl.main svg { width: 34px; height: 34px; fill: var(--bg); }
+.ctl:active { transform: scale(.94); }
+.stop {
+  border: 0; background: transparent; color: var(--muted); font-weight: 700; letter-spacing: .1em;
+  padding: 10px 18px; border-radius: 999px; font-size: 13px;
+}
+.stop.armed { background: var(--danger); color: #1A0505; }
+
+/* ---------- Done ---------- */
+#done { justify-content: center; gap: 18px; --phase: var(--c1); text-align: center; }
+#done h2 { margin: 0; font-size: clamp(48px, 16vw, 96px); font-family: var(--font-num); font-weight: 800; letter-spacing: .04em; }
+#done p { margin: 0; color: var(--muted); }
+#done .btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
+#done button { border: 0; border-radius: 14px; padding: 14px 22px; font-weight: 700; background: color-mix(in srgb, var(--fg) 12%, transparent); }
+#done button.primary { background: var(--fg); color: var(--bg); }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<main id="setup">
+  <div class="top">
+    <h1>繰り返しタイマー</h1>
+    <div class="total">合計<b id="total">0:00</b></div>
+  </div>
+
+  <section>
+    <p class="label">1セットの流れ</p>
+    <div class="list" id="list"></div>
+    <div style="height:8px"></div>
+    <button class="add" id="add" type="button" style="width:100%">＋ 区間を追加</button>
+  </section>
+
+  <section>
+    <p class="label">全体の流れ</p>
+    <div class="strip" id="strip" aria-hidden="true"></div>
+  </section>
+
+  <section class="opts">
+    <div class="opt">
+      <div class="t">セット数</div>
+      <div class="stepper">
+        <button type="button" data-step="sets" data-d="-1" aria-label="セット数を減らす">−</button>
+        <div class="val"><input id="sets" type="number" inputmode="numeric" min="1" max="99"><small>セット</small></div>
+        <button type="button" data-step="sets" data-d="1" aria-label="セット数を増やす">＋</button>
+      </div>
+    </div>
+    <div class="opt">
+      <div class="t">準備時間<small>スタート前のカウントダウン</small></div>
+      <div class="stepper">
+        <button type="button" data-step="prep" data-d="-5" aria-label="準備時間を減らす">−</button>
+        <div class="val"><input id="prep" type="number" inputmode="numeric" min="0" max="120"><small>秒</small></div>
+        <button type="button" data-step="prep" data-d="5" aria-label="準備時間を増やす">＋</button>
+      </div>
+    </div>
+    <label class="opt" for="skipLast">
+      <div class="t">最後の休憩をとばす<small>最終セットの最後の区間を省略</small></div>
+      <span class="switch"><input id="skipLast" type="checkbox"><span></span></span>
+    </label>
+    <label class="opt" for="sound">
+      <div class="t">効果音<small>残り3秒と切り替わりで鳴る</small></div>
+      <span class="switch"><input id="sound" type="checkbox"><span></span></span>
+    </label>
+    <label class="opt" for="voice">
+      <div class="t">音声で読み上げ<small>区間の名前をしゃべる</small></div>
+      <span class="switch"><input id="voice" type="checkbox"><span></span></span>
+    </label>
+  </section>
+
+  <section>
+    <p class="label">プリセット</p>
+    <div class="presets" id="presets"></div>
+    <div class="save">
+      <input id="presetName" type="text" placeholder="今の設定に名前をつけて保存" maxlength="20">
+      <button type="button" id="savePreset">保存</button>
+    </div>
+    <p class="note" id="note"></p>
+  </section>
+</main>
+
+<div class="startbar"><button class="start" id="startBtn" type="button">スタート</button></div>
+
+<section id="run" hidden>
+  <div class="runhead">
+    <div class="setcount" id="setcount"></div>
+    <div class="remain">残り<b id="remainAll">0:00</b></div>
+  </div>
+
+  <div class="dial">
+    <svg viewBox="0 0 100 100" aria-hidden="true">
+      <circle class="track" cx="50" cy="50" r="46" fill="none" stroke-width="4"></circle>
+      <circle class="prog" id="prog" cx="50" cy="50" r="46" fill="none" stroke-width="4" stroke-linecap="round"></circle>
+    </svg>
+    <div class="center">
+      <div class="phase-name" id="phaseName"></div>
+      <div class="clock" id="clock" aria-live="off">0:00</div>
+      <div class="paused-tag" id="pausedTag"></div>
+    </div>
+  </div>
+
+  <div class="next" id="next"></div>
+
+  <div class="controls">
+    <button class="ctl" id="prevBtn" type="button" aria-label="前の区間"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+    <button class="ctl main" id="pauseBtn" type="button" aria-label="一時停止"><svg viewBox="0 0 24 24" id="pauseIcon"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></button>
+    <button class="ctl" id="skipBtn" type="button" aria-label="次の区間"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+  </div>
+  <button class="stop" id="stopBtn" type="button">終了</button>
+</section>
+
+<section id="done" hidden>
+  <h2>完了</h2>
+  <p id="doneSummary"></p>
+  <div class="btns">
+    <button type="button" class="primary" id="againBtn">もう一度</button>
+    <button type="button" id="backBtn">設定に戻る</button>
+  </div>
+</section>
+
+<script>
+(() => {
+  const COLORS = ['var(--c0)', 'var(--c1)', 'var(--c2)', 'var(--c3)'];
+  const PREP_COLOR = 'var(--prep)';
+  const BUILTIN = [
+    { name: '30秒 / 90秒 ×5', intervals: [{ name: '運動', sec: 30 }, { name: '休憩', sec: 90 }], sets: 5, prep: 10, skipLast: true },
+    { name: 'タバタ 20/10 ×8', intervals: [{ name: '運動', sec: 20 }, { name: '休憩', sec: 10 }], sets: 8, prep: 10, skipLast: true },
+    { name: 'HIIT 45/15 ×10', intervals: [{ name: '運動', sec: 45 }, { name: '休憩', sec: 15 }], sets: 10, prep: 10, skipLast: true },
+  ];
+  const DEFAULT = { ...structuredClone(BUILTIN[0]), sound: true, voice: true };
+
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k, fb) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+
+  let cfg = Object.assign(structuredClone(DEFAULT), store.get('rt.cfg', {}));
+  if (!Array.isArray(cfg.intervals) || !cfg.intervals.length) cfg.intervals = structuredClone(DEFAULT.intervals);
+  let presets = store.get('rt.presets', []);
+
+  const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
+  const fmt = (s) => { s = Math.max(0, Math.round(s)); const m = Math.floor(s / 60), r = s % 60; return m + ':' + String(r).padStart(2, '0'); };
+  const colorOf = (i) => COLORS[i % COLORS.length];
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const save = () => store.set('rt.cfg', cfg);
+
+  function schedule() {
+    const out = [];
+    if (cfg.prep > 0) out.push({ name: '準備', sec: cfg.prep, color: PREP_COLOR, set: 0 });
+    const n = cfg.intervals.length;
+    for (let s = 1; s <= cfg.sets; s++) {
+      cfg.intervals.forEach((iv, i) => {
+        if (cfg.skipLast && n > 1 && s === cfg.sets && i === n - 1) return;
+        out.push({ name: iv.name || ('区間' + (i + 1)), sec: iv.sec, color: colorOf(i), set: s });
+      });
+    }
+    return out;
+  }
+
+  /* ---------- Setup UI ---------- */
+  function renderList() {
+    const one = cfg.intervals.length <= 1;
+    $('list').innerHTML = cfg.intervals.map((iv, i) => `
+      <div class="row" data-i="${i}">
+        <span class="bar" style="background:${colorOf(i)}"></span>
+        <input class="name" id="name-${i}" value="${esc(iv.name)}" maxlength="12" aria-label="区間${i + 1}の名前">
+        <div class="stepper">
+          <button type="button" data-act="dec" aria-label="5秒減らす">−</button>
+          <div class="val"><input id="sec-${i}" type="number" inputmode="numeric" min="1" max="3600" value="${iv.sec}" aria-label="区間${i + 1}の秒数"><small id="hint-${i}">${fmt(iv.sec)}</small></div>
+          <button type="button" data-act="inc" aria-label="5秒増やす">＋</button>
+        </div>
+        <button type="button" class="del" data-act="del" aria-label="区間を削除" ${one ? 'disabled' : ''}>×</button>
+      </div>`).join('');
+  }
+
+  function renderSummary() {
+    const sch = schedule();
+    const total = sch.reduce((a, p) => a + p.sec, 0);
+    $('total').textContent = fmt(total);
+    $('strip').innerHTML = sch.map((p) => `<span style="flex:${p.sec};background:${p.color}"></span>`).join('');
+    cfg.intervals.forEach((iv, i) => { const h = $('hint-' + i); if (h) h.textContent = fmt(iv.sec); });
+  }
+
+  function renderOpts() {
+    $('sets').value = cfg.sets;
+    $('prep').value = cfg.prep;
+    $('skipLast').checked = !!cfg.skipLast;
+    $('sound').checked = !!cfg.sound;
+    $('voice').checked = !!cfg.voice;
+  }
+
+  function renderPresets() {
+    const b = BUILTIN.map((p, i) => `<span class="chip"><button type="button" data-load="b${i}">${esc(p.name)}</button></span>`);
+    const u = presets.map((p, i) => `<span class="chip"><button type="button" data-load="u${i}">${esc(p.name)}</button><button type="button" class="x" data-delp="${i}" aria-label="${esc(p.name)}を削除">×</button></span>`);
+    $('presets').innerHTML = b.concat(u).join('');
+  }
+
+  function renderAll() { renderList(); renderOpts(); renderSummary(); renderPresets(); }
+
+  $('list').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-act]'); if (!btn) return;
+    const i = +btn.closest('.row').dataset.i;
+    const act = btn.dataset.act;
+    if (act === 'del') { if (cfg.intervals.length > 1) { cfg.intervals.splice(i, 1); renderList(); } }
+    else {
+      const iv = cfg.intervals[i];
+      const d = act === 'inc' ? 5 : -5;
+      iv.sec = clamp(d > 0 ? Math.floor(iv.sec / 5) * 5 + 5 : Math.ceil(iv.sec / 5) * 5 - 5, 5, 3600);
+      $('sec-' + i).value = iv.sec;
+    }
+    save(); renderSummary();
+  });
+  $('list').addEventListener('input', (e) => {
+    const row = e.target.closest('.row'); if (!row) return;
+    const i = +row.dataset.i;
+    if (e.target.classList.contains('name')) cfg.intervals[i].name = e.target.value;
+    else { const v = parseInt(e.target.value, 10); if (v > 0) cfg.intervals[i].sec = clamp(v, 1, 3600); }
+    save(); renderSummary();
+  });
+  $('list').addEventListener('change', (e) => {
+    const row = e.target.closest('.row'); if (!row || e.target.classList.contains('name')) return;
+    e.target.value = cfg.intervals[+row.dataset.i].sec;
+  });
+  $('add').addEventListener('click', () => {
+    cfg.intervals.push({ name: '区間' + (cfg.intervals.length + 1), sec: 30 });
+    save(); renderList(); renderSummary();
+  });
+
+  const LIMITS = { sets: [1, 99], prep: [0, 120] };
+  document.querySelectorAll('[data-step]').forEach((b) => b.addEventListener('click', () => {
+    const k = b.dataset.step; cfg[k] = clamp(cfg[k] + +b.dataset.d, ...LIMITS[k]);
+    $(k).value = cfg[k]; save(); renderSummary();
+  }));
+  ['sets', 'prep'].forEach((k) => {
+    $(k).addEventListener('input', () => { const v = parseInt($(k).value, 10); if (!isNaN(v)) { cfg[k] = clamp(v, ...LIMITS[k]); save(); renderSummary(); } });
+    $(k).addEventListener('change', () => { $(k).value = cfg[k]; });
+  });
+  [['skipLast', 'skipLast'], ['sound', 'sound'], ['voice', 'voice']].forEach(([id, k]) =>
+    $(id).addEventListener('change', () => { cfg[k] = $(id).checked; save(); renderSummary(); }));
+
+  $('presets').addEventListener('click', (e) => {
+    const del = e.target.closest('[data-delp]');
+    if (del) { const p = presets.splice(+del.dataset.delp, 1)[0]; store.set('rt.presets', presets); renderPresets(); note(`「${p.name}」を削除しました`); return; }
+    const ld = e.target.closest('[data-load]'); if (!ld) return;
+    const key = ld.dataset.load;
+    const p = key[0] === 'b' ? BUILTIN[+key.slice(1)] : presets[+key.slice(1)];
+    Object.assign(cfg, structuredClone({ intervals: p.intervals, sets: p.sets, prep: p.prep, skipLast: p.skipLast }));
+    save(); renderList(); renderOpts(); renderSummary(); note(`「${p.name}」を読み込みました`);
+  });
+  $('savePreset').addEventListener('click', () => {
+    const name = $('presetName').value.trim() || `${cfg.intervals.map((i) => i.sec).join('/')} ×${cfg.sets}`;
+    presets.push({ name, intervals: structuredClone(cfg.intervals), sets: cfg.sets, prep: cfg.prep, skipLast: cfg.skipLast });
+    store.set('rt.presets', presets); $('presetName').value = ''; renderPresets(); note(`「${name}」を保存しました`);
+  });
+  let noteT; function note(t) { $('note').textContent = t; clearTimeout(noteT); noteT = setTimeout(() => ($('note').textContent = ''), 2500); }
+
+  /* ---------- Sound / voice / wake ---------- */
+  let ac = null;
+  function ensureAudio() {
+    try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch { ac = null; }
+  }
+  function tone(freq, dur, at = 0, vol = 0.35, type = 'sine') {
+    if (!cfg.sound || !ac) return;
+    const t = ac.currentTime + at, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.05);
+  }
+  const sfx = {
+    tick() { tone(740, 0.12, 0, 0.3, 'square'); },
+    phase() { tone(1046, 0.5, 0, 0.4, 'square'); },
+    finish() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, i === 3 ? 0.8 : 0.18, i * 0.18, 0.35, 'square')); },
+  };
+  function say(text) {
+    if (!cfg.voice || !('speechSynthesis' in window)) return;
+    try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = 'ja-JP'; u.rate = 1.05; setTimeout(() => speechSynthesis.speak(u), 350); } catch {}
+  }
+  const buzz = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch {} };
+  let wake = null;
+  async function lockScreen() { try { if (navigator.wakeLock && !wake) { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => (wake = null)); } } catch {} }
+  function unlockScreen() { try { wake && wake.release(); } catch {} wake = null; }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && run) lockScreen(); });
+
+  /* ---------- Run engine ---------- */
+  const CIRC = 2 * Math.PI * 46;
+  $('prog').style.strokeDasharray = CIRC;
+  let run = null, timer = null;
+
+  function start() {
+    ensureAudio(); lockScreen();
+    const sched = schedule();
+    if (!sched.length) return;
+    run = { sched, idx: 0, end: 0, paused: false, remain: 0, lastSec: null, started: Date.now() };
+    setPhase(0);
+    $('setup').hidden = true; document.querySelector('.startbar').hidden = true; $('done').hidden = true; $('run').hidden = false;
+    clearInterval(timer); timer = setInterval(tick, 100);
+    draw();
+  }
+
+  function setPhase(i, announce = true) {
+    run.idx = i;
+    const p = run.sched[i];
+    if (run.paused) run.remain = p.sec * 1000; else run.end = Date.now() + p.sec * 1000;
+    run.lastSec = p.sec;
+    if (announce) enter();
+  }
+
+  function enter() {
+    const p = run.sched[run.idx];
+    $('run').style.setProperty('--phase', p.color);
+    sfx.phase(); buzz(250); say(p.name);
+  }
+
+  function tick() {
+    if (!run || run.paused) return;
+    const now = Date.now();
+    if (now >= run.end) {
+      let changed = false;
+      while (now >= run.end) {
+        if (run.idx + 1 >= run.sched.length) return finish();
+        run.idx++; run.end += run.sched[run.idx].sec * 1000; changed = true;
+      }
+      if (changed) { run.lastSec = Math.ceil((run.end - now) / 1000); enter(); }
+    }
+    const sec = Math.ceil((run.end - now) / 1000);
+    if (sec !== run.lastSec) {
+      run.lastSec = sec;
+      if (sec >= 1 && sec <= 3 && run.sched[run.idx].sec > 3) { sfx.tick(); buzz(60); }
+    }
+    draw();
+  }
+
+  function draw() {
+    if (!run) return;
+    const p = run.sched[run.idx];
+    const rem = run.paused ? run.remain : Math.max(0, run.end - Date.now());
+    $('clock').textContent = fmt(Math.ceil(rem / 1000));
+    $('phaseName').textContent = p.name;
+    $('prog').style.strokeDashoffset = CIRC * (1 - rem / (p.sec * 1000));
+    $('setcount').innerHTML = p.set === 0 ? '<small>まもなく開始</small>' : `<small>セット</small>${p.set} / ${cfg.sets}`;
+    let after = 0; for (let i = run.idx + 1; i < run.sched.length; i++) after += run.sched[i].sec;
+    $('remainAll').textContent = fmt(Math.ceil(rem / 1000) + after);
+    const n = run.sched[run.idx + 1];
+    $('next').innerHTML = n ? `次 <i style="background:${n.color}"></i><b>${esc(n.name)}</b> ${fmt(n.sec)}` : 'これが最後';
+    $('pausedTag').textContent = run.paused ? '一時停止中' : '';
+    $('pauseIcon').innerHTML = run.paused ? '<path d="M7 4v16l13-8z"/>' : '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+    $('pauseBtn').setAttribute('aria-label', run.paused ? '再開' : '一時停止');
+  }
+
+  function togglePause() {
+    if (!run) return;
+    ensureAudio();
+    if (run.paused) { run.end = Date.now() + run.remain; run.paused = false; lockScreen(); }
+    else { run.remain = Math.max(0, run.end - Date.now()); run.paused = true; }
+    draw();
+  }
+  function skip() {
+    if (!run) return;
+    if (run.idx + 1 >= run.sched.length) return finish();
+    setPhase(run.idx + 1); draw();
+  }
+  function prev() {
+    if (!run) return;
+    const p = run.sched[run.idx];
+    const rem = run.paused ? run.remain : run.end - Date.now();
+    const elapsed = p.sec * 1000 - rem;
+    setPhase(elapsed > 2000 || run.idx === 0 ? run.idx : run.idx - 1); draw();
+  }
+  function finish() {
+    const total = run.sched.reduce((a, p) => a + p.sec, 0);
+    clearInterval(timer); timer = null;
+    sfx.finish(); buzz([200, 100, 200, 100, 400]); say('おつかれさまでした');
+    $('doneSummary').textContent = `${cfg.sets}セット · ${fmt(total)}`;
+    run = null; unlockScreen();
+    $('run').hidden = true; $('done').hidden = false;
+  }
+  let stopT = null;
+  function stop() {
+    const b = $('stopBtn');
+    if (!b.classList.contains('armed')) {
+      b.classList.add('armed'); b.textContent = 'もう一度押して終了';
+      clearTimeout(stopT); stopT = setTimeout(() => { b.classList.remove('armed'); b.textContent = '終了'; }, 3000);
+      return;
+    }
+    clearTimeout(stopT); b.classList.remove('armed'); b.textContent = '終了';
+    clearInterval(timer); timer = null; run = null; unlockScreen();
+    try { speechSynthesis.cancel(); } catch {}
+    backToSetup();
+  }
+  function backToSetup() {
+    $('run').hidden = true; $('done').hidden = true; $('setup').hidden = false; document.querySelector('.startbar').hidden = false;
+  }
+
+  $('startBtn').addEventListener('click', start);
+  $('pauseBtn').addEventListener('click', togglePause);
+  $('skipBtn').addEventListener('click', skip);
+  $('prevBtn').addEventListener('click', prev);
+  $('stopBtn').addEventListener('click', stop);
+  $('againBtn').addEventListener('click', start);
+  $('backBtn').addEventListener('click', backToSetup);
+  document.addEventListener('keydown', (e) => {
+    if (!run || e.target.matches('input')) return;
+    if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+    else if (e.code === 'ArrowRight') skip();
+    else if (e.code === 'ArrowLeft') prev();
+  });
+
+  renderAll();
+
+  if ('serviceWorker' in navigator && /^https?:/.test(location.protocol) && document.querySelector('link[rel=manifest]')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+})();
+</script>
+
+</body>
+</html>
