@@ -1,6 +1,6 @@
 {
-  "name": "繰り返しタイマー",
-  "short_name": "タイマー",
+  "name": "ワークアウトタイマー",
+  "short_name": "ワークアウト",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

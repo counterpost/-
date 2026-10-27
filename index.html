@@ -13,7 +13,7 @@
 <style>body{margin:0}:root{padding-top:env(safe-area-inset-top,0px)}</style>
 </head>
 <body>
-<title>繰り返しタイマー</title>
+<title>ワークアウトタイマー</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -199,7 +199,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .02em; }
 
 <main id="setup">
   <div class="top">
-    <h1>繰り返しタイマー</h1>
+    <h1>ワークアウトタイマー</h1>
     <div class="total">合計<b id="total">0:00</b></div>
   </div>
 
@@ -308,6 +308,8 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .02em; }
   const DEFAULT = { ...structuredClone(BUILTIN[0]), sound: true, voice: true };
 
   const $ = (id) => document.getElementById(id);
+  // Inside the Android app, a native service runs the timer and plays alerts (works with the screen off).
+  const NATIVE = typeof window.Android !== 'undefined';
   const store = {
     get(k, fb) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
@@ -439,7 +441,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .02em; }
     try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch { ac = null; }
   }
   function tone(freq, dur, at = 0, vol = 0.35, type = 'sine') {
-    if (!cfg.sound || !ac) return;
+    if (NATIVE || !cfg.sound || !ac) return;
     const t = ac.currentTime + at, o = ac.createOscillator(), g = ac.createGain();
     o.type = type; o.frequency.value = freq;
     g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
@@ -451,10 +453,10 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .02em; }
     finish() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, i === 3 ? 0.8 : 0.18, i * 0.18, 0.35, 'square')); },
   };
   function say(text) {
-    if (!cfg.voice || !('speechSynthesis' in window)) return;
+    if (NATIVE || !cfg.voice || !('speechSynthesis' in window)) return;
     try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = 'ja-JP'; u.rate = 1.05; setTimeout(() => speechSynthesis.speak(u), 350); } catch {}
   }
-  const buzz = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch {} };
+  const buzz = (p) => { if (NATIVE) return; try { navigator.vibrate && navigator.vibrate(p); } catch {} };
   let wake = null;
   async function lockScreen() { try { if (navigator.wakeLock && !wake) { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => (wake = null)); } } catch {} }
   function unlockScreen() { try { wake && wake.release(); } catch {} wake = null; }
@@ -469,11 +471,41 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .02em; }
     ensureAudio(); lockScreen();
     const sched = schedule();
     if (!sched.length) return;
+    if (NATIVE) Android.start(JSON.stringify({
+      phases: sched.map((p) => ({ name: p.name, sec: p.sec, set: p.set, color: p.color })),
+      sets: cfg.sets, sound: cfg.sound, voice: cfg.voice,
+    }));
     run = { sched, idx: 0, end: 0, paused: false, remain: 0, lastSec: null, started: Date.now() };
     setPhase(0);
+    showRun();
+  }
+
+  function showRun() {
     $('setup').hidden = true; document.querySelector('.startbar').hidden = true; $('done').hidden = true; $('run').hidden = false;
-    clearInterval(timer); timer = setInterval(tick, 100);
+    clearInterval(timer); timer = NATIVE ? setInterval(syncNative, 200) : setInterval(tick, 100);
     draw();
+  }
+
+  // Mirror the native service's state on screen.
+  function syncNative() {
+    if (!run) return;
+    let s; try { s = JSON.parse(Android.state()); } catch { return; }
+    if (s.starting) return;
+    if (s.finished) return finish();
+    if (!s.running) { clearInterval(timer); timer = null; run = null; unlockScreen(); return backToSetup(); }
+    if (s.idx !== run.idx) { run.idx = s.idx; $('run').style.setProperty('--phase', run.sched[run.idx].color); }
+    run.paused = s.paused; run.remain = s.remainMs; run.end = Date.now() + s.remainMs;
+    draw();
+  }
+
+  // Reopening the app while a workout is running: pick it back up.
+  function restoreNative() {
+    let s; try { s = JSON.parse(Android.state()); } catch { return; }
+    if (!s.running || !Array.isArray(s.phases) || !s.phases.length) return;
+    cfg.sets = s.sets;
+    run = { sched: s.phases, idx: s.idx, end: Date.now() + s.remainMs, paused: s.paused, remain: s.remainMs, lastSec: null };
+    $('run').style.setProperty('--phase', run.sched[run.idx].color);
+    showRun();
   }
 
   function setPhase(i, announce = true) {
@@ -528,6 +560,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .02em; }
 
   function togglePause() {
     if (!run) return;
+    if (NATIVE) { Android.cmd(run.paused ? 'resume' : 'pause'); run.paused = !run.paused; return draw(); }
     ensureAudio();
     if (run.paused) { run.end = Date.now() + run.remain; run.paused = false; lockScreen(); }
     else { run.remain = Math.max(0, run.end - Date.now()); run.paused = true; }
@@ -535,11 +568,13 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .02em; }
   }
   function skip() {
     if (!run) return;
+    if (NATIVE) return Android.cmd('skip');
     if (run.idx + 1 >= run.sched.length) return finish();
     setPhase(run.idx + 1); draw();
   }
   function prev() {
     if (!run) return;
+    if (NATIVE) return Android.cmd('prev');
     const p = run.sched[run.idx];
     const rem = run.paused ? run.remain : run.end - Date.now();
     const elapsed = p.sec * 1000 - rem;
@@ -562,6 +597,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .02em; }
       return;
     }
     clearTimeout(stopT); b.classList.remove('armed'); b.textContent = '終了';
+    if (NATIVE) Android.cmd('stop');
     clearInterval(timer); timer = null; run = null; unlockScreen();
     try { speechSynthesis.cancel(); } catch {}
     backToSetup();
@@ -585,6 +621,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .02em; }
   });
 
   renderAll();
+  if (NATIVE) restoreNative();
 
   if ('serviceWorker' in navigator && /^https?:/.test(location.protocol) && document.querySelector('link[rel=manifest]')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
